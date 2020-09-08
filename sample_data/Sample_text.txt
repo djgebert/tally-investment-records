@@ -1,0 +1,89 @@
+WealthHub Securities Limited
+ABN
+83 089 718 249
+AFSL No.
+23 0704
+GPO Box 4545
+Melbourne
+VIC 3001
+Telephone
+13 13 80
+nabtrade.com.au
+80765A0311
+* WealthHub Securities is a Market Participant of both the Australian Securities Exchange Limited (ASX) and Chi-X Australia Pty Ltd (Chi-X). As such, your transaction may have been
+executed on one or both of these exchanges.
+The nabtrade service (nabtrade) is provided by WealthHub Securities Limited ABN 83 089 718 249, AFSL No. 230704 (WealthHub Securities). WealthHub Securities is a Market
+Participant under the ASIC Market Integrity Rules and a wholly owned subsidiary of National Australia Bank Limited ABN 12 004 044 937, AFSL No. 230686 (NAB). NAB doesn™t
+guarantee its subsidiaries obligations or performance, or the products or services its subsidiaries offer. © National Australia Bank Limited
+Page
+1
+ of
+1
+Sell confirmation
+MR JOHN DOE
+1 STRAIGHT ST
+MELBOURNE VIC 3000
+Trade date:
+22/07/2020
+As at date:
+22/07/2020
+Settlement date:
+24/07/2020
+Confirmation number:
+12345678
+Account number:
+NT1234567-002
+Exchange:
+AXW/Chi-X*
+Registration type:
+Broker Sponsored
+HIN:
+0012345678
+Registration Details:
+MR JOHN DOE,
+1 STRAIGHT ST
+MELBOURNE VIC 3000
+Tax invoice - please retain for tax purposes.
+We have sold for you:
+Quantity
+Code
+Security Description
+Average price per share
+Consideration
+416
+FAIR.ASX
+BETASHARES AUSTRALIAN SUSTAINABILITY
+LEADERS ETF EXCHANGE TRADED FUND UNITS
+FULLY PAID
+$17.0800
+$7,105.28
+Brokerage
+$19.95
+includes GST
+$1.81
+Total amount receivable
+$7,085.33
+Contributing trades:
+Conf number
+Total quantity
+Price
+Basis of quotation
+Condition Code
+70855190
+416
+$17.0800
+If this confirmation does not correspond with your records please contact us within
+48
+ hours, on
+13 13 80
+ between
+8
+am and
+8
+pm (AEST),
+Monday to Friday.
+Settlement instructions
+All securities must be received by
+9
+am AEST on the above settlement date. This transaction will be settled in accordance with your instructions as
+follows.
