@@ -5,6 +5,7 @@ from typing import List
 import sys
 from openpyxl import Workbook
 # import defusedxml
+from collections import defaultdict
 
 class InvestmentRecord():
     """Holds data for a single investment event, such as a sell or a buy.
@@ -36,7 +37,6 @@ class InvestmentRecord():
             # Get all the data we want
             text = pdf_reader.getPage(0).extractText()
         
-        # Check it's an investment record we can handle
         # We can handle nabTrade Contract Notes
         # These will have a first line of text as follows
         if not text.startswith("WealthHub Securities Limited"):
@@ -44,15 +44,18 @@ class InvestmentRecord():
 
         # Grab all the record details we're interested in
         self.trade_type = re.search(r"\n(.+) [Cc]onfirmation", text).group(1)
-        self.settlement_date = re.search(r"Settlement date:\n(\d{2}/\d{2}/\d{4})", text).group(1)
-        self.confirmation_number = re.search(r"Confirmation number:\n(\d+)", text).group(1)
-        self.account_number = re.search(r"Account number:\n([a-zA-Z0-9-]+)", text).group(1)
-        self.hin = re.search(r"HIN:\n(\d+)", text).group(1)
+        self.settlement_date = re.search(r"Settlement date:\n(.+)", text).group(1)
+        self.confirmation_number = re.search(r"Confirmation number:\n(.+)", text).group(1)
+        self.account_number = re.search(r"Account number:\n(.+)", text).group(1)
+        self.hin = re.search(r"HIN:\n(.+)", text).group(1)
         # details holds multiple named groups in one big match
-        details = re.search(r"Consideration\n(?P<quantity>.+)\n(?P<code>.+)\n(?P<security_description>[^$]+)(?P<average_price>.+)\n(?P<consideration>.+)\n", text)
+        details = re.search(
+            r"Consideration\n(?P<quantity>.+)\n(?P<code>.+)\n(?P<security_description>[^$]+)(?P<average_price>.+)\n(?P<consideration>.+)\n", 
+            text)
         self.quantity = details.group("quantity")
         self.code = details.group("code")
         self.average_price_per_share = details.group("average_price")
+        self.brokerage = re.search(r"Brokerage\n(.+)", text).group(1)
 
 def get_contract_note_filenames(path: str) -> List[str]:
     """Return a list of filenames matching the contract note format (WH_ContractNote_....pdf).
@@ -73,6 +76,20 @@ def get_contract_note_filenames(path: str) -> List[str]:
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     """ 
     """
+
+    # We will have a sheet for each code (i.e. stock exchange ticker)
+    investment_records_by_code = defaultdict(list)
+    for record in investment_records:
+        investment_records_by_code[record.code].append(record)
+    
+    workbook = Workbook()
+
+    # For each code
+        # Add a sheet for the code (unless first sheet, in which case rename)
+        # Sort the records by date
+
+
+
     pass
 
 def display_help():
