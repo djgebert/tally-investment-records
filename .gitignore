@@ -1,6 +1,10 @@
 # PDFs
 *.pdf
 
+# Excel files
+*.xlsx
+*.xls
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

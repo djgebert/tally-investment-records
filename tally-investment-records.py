@@ -73,24 +73,52 @@ def get_contract_note_filenames(path: str) -> List[str]:
                 
     return contract_note_filenames
 
+def initialise_for_new_code(workbook: Workbook, records: list):
+    # We can work on the workbook as well as the list of records in place
+    # Create the sheet
+    # Add the headings
+    # Sort the records by date
+    # Initialise the records' quantities held
+    pass
+
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     """ 
     """
+    workbook = Workbook()
+    # Hello world:
+    # worksheet = workbook.active
+    # worksheet["A1"] = "Hello World!"
+    # workbook.save("helloworld.xlsx")
 
     # We will have a sheet for each code (i.e. stock exchange ticker)
     investment_records_by_code = defaultdict(list)
     for record in investment_records:
         investment_records_by_code[record.code].append(record)
-    
-    workbook = Workbook()
+   
+    for code in investment_records_by_code:
+        
+        initialise_for_new_code(workbook, investment_records_by_code[code])
+        
+        # Initialise latest_date
+        for record in investment_records_by_code[code]:
+            # If this record begins a new financial year
+                # Add a row giving the total capital gains for the past year
+                # Cannot update dates in place, so return latest_date
+            # Insert the basic data
+            # Store the row for this record
+            # If it's a sell
+                # In a decoupled function:
+                    # Find which buy records we are selling, and their quantities
+                    # This will be FIFO, but allows other methods in future
+                # Decrease the records' quantities held
+                # Calculate the capital gains and insert it
+                # For each record from chich some securities were sold:
+                    # Fill in the date sold field in the spreadsheet
 
-    # For each code
-        # Add a sheet for the code (unless first sheet, in which case rename)
-        # Sort the records by date
 
 
-
-    pass
+    # Clean up:
+    # Delete the default, empty sheet if it exists
 
 def display_help():
     """Print a help message for this script to the terminal.
@@ -109,5 +137,5 @@ if __name__ == "__main__":
 
     investment_records = [InvestmentRecord(filename) for filename in get_contract_note_filenames(path_to_search)]
 
-    
+    construct_investment_record_workbook(investment_records)
     
