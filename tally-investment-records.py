@@ -1,11 +1,13 @@
 import PyPDF2
 import re
+from re import Match
 import os
 from typing import List
 import sys
 from openpyxl import Workbook
 # import defusedxml
 from collections import defaultdict
+from datetime import datetime
 
 class InvestmentRecord():
     """Holds data for a single investment event, such as a sell or a buy.
@@ -42,8 +44,14 @@ class InvestmentRecord():
         if not text.startswith("WealthHub Securities Limited"):
             raise Exception("Only nabTrade Contract Notes are accepted")
 
-        # Grab all the record details we're interested in
         self.trade_type = re.search(r"\n(.+) [Cc]onfirmation", text).group(1)
+        # We want dates as datetime for later use
+        # mFund transactions omit Trade date, so use a suitable substitute
+        trade_date = re.search(r"Trade date:\n(.+)", text)
+        if(trade_date):
+            self.trade_date = trade_date.group(1)
+        else:
+            self.trade_date = re.search(r"As at date:\n(.+)", text).group(1)
         self.settlement_date = re.search(r"Settlement date:\n(.+)", text).group(1)
         self.confirmation_number = re.search(r"Confirmation number:\n(.+)", text).group(1)
         self.account_number = re.search(r"Account number:\n(.+)", text).group(1)
@@ -64,7 +72,6 @@ def get_contract_note_filenames(path: str) -> List[str]:
         path: The path to search. All subdirectories within the path are also searched.
 
     """
-     
     contract_note_filenames = []
     for dirpath, dirnames, filenames in os.walk(path):
         for filename in filenames:
@@ -81,6 +88,30 @@ def initialise_for_new_code(workbook: Workbook, records: list):
     # Initialise the records' quantities held
     pass
 
+def financial_year_check(workbook: Workbook, previous_date: datetime, new_date: datetime) -> datetime:
+    # If this record begins a new financial year
+        # Add a row giving the total capital gains for the past year
+    pass
+
+def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
+    # Create new row and add the basic data
+    # Return the row reference
+    return ""
+
+ def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> List:
+    # Find which buy records we are selling, and their quantities
+    # This will be FIFO, but allows other methods in future
+    # Return a list of tuples containing each investment record from which we should sell, and the quantity sold
+    return []
+
+def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_quants_to_sell: list)
+    for rec,quant in recs_and_quants_to_sell:
+        # Decrease the records' quantities held
+        # Calculate the capital gains and insert it
+        # For each record from which some securities were sold:
+            # Fill in the date sold field in the spreadsheet
+
+
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     """ 
     """
@@ -96,34 +127,33 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         investment_records_by_code[record.code].append(record)
    
     for code in investment_records_by_code:
-        
-        initialise_for_new_code(workbook, investment_records_by_code[code])
+        records = investment_records_by_code[code]
+
+        initialise_for_new_code(workbook, records)
         
         # Initialise latest_date
+        current_date = datetime.strptime(records[0].trade_date,"%d/%m/%Y")
+
         for record in investment_records_by_code[code]:
-            # If this record begins a new financial year
-                # Add a row giving the total capital gains for the past year
-                # Cannot update dates in place, so return latest_date
-            # Insert the basic data
-            # Store the row for this record
-            # If it's a sell
-                # In a decoupled function:
-                    # Find which buy records we are selling, and their quantities
-                    # This will be FIFO, but allows other methods in future
-                # Decrease the records' quantities held
-                # Calculate the capital gains and insert it
-                # For each record from chich some securities were sold:
-                    # Fill in the date sold field in the spreadsheet
-
-
-
-    # Clean up:
-    # Delete the default, empty sheet if it exists
+            
+            financial_year_check(workbook, current_date, record.trade_date)
+            current_date = record.trade_date
+            record.row_reference = add_new_record_row(workbook, record)
+            if(record.trade_type.lower() == "sell"):
+                recs_and_quants_to_sell = find_records_to_sell_fifo(workbook, record.quantity)
+                add_sale_data(workbook, record, recs_and_quants_to_sell)
+ 
+    # We don't need the default empty sheet
+    del workbook["Sheet"]
 
 def display_help():
     """Print a help message for this script to the terminal.
     """
     raise Exception("To be completed.")
+
+def save_workbook(workbook: Workbook):
+    # If filename exists, back up existing file, then save
+    pass
 
 if __name__ == "__main__":
     if(len(sys.argv) > 1):
@@ -137,5 +167,7 @@ if __name__ == "__main__":
 
     investment_records = [InvestmentRecord(filename) for filename in get_contract_note_filenames(path_to_search)]
 
-    construct_investment_record_workbook(investment_records)
+    workbook = construct_investment_record_workbook(investment_records)
+
+    save_workbook(workbook)
     
