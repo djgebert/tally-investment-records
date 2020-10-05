@@ -10,6 +10,25 @@ from collections import defaultdict
 from datetime import datetime
 import os.path
 from operator import attrgetter
+from fiscalyear import FiscalDateTime
+
+# When working with the spreadsheet, we will use these colum names
+_COLUMN_NAMES = {}
+i = 1
+for name in [
+    "Date",
+    "Code",
+    "Quantity",
+    "Average price",
+    "Transaction type",
+    "Brokerage",
+    "Capital gain",
+    "Filename",
+    "History"
+]:
+    _COLUMN_NAMES[name] = i
+    i += 1
+del i
 
 
 class InvestmentRecord():
@@ -86,19 +105,8 @@ def get_contract_note_filenames(path: str) -> List[str]:
 def initialise_for_new_code(workbook: Workbook, code: str, records: list):
     # We can work on the workbook as well as the list of records in place
     sheet = workbook.create_sheet(code)
-    for cell, text in zip(sheet["A1:I1"][0], 
-    [
-        "Date",
-        "Code",
-        "Quantity",
-        "Average price",
-        "Transaction type",
-        "Brokerage",
-        "Capital gain",
-        "Filename",
-        "History"
-    ]):
-        cell.value = text
+    for name, column_ref in _COLUMN_NAMES.items(): 
+        sheet.cell(1, column_ref).value = name
 
     records.sort(key=attrgetter("trade_date", "trade_type"))
     for record in records:
@@ -106,10 +114,15 @@ def initialise_for_new_code(workbook: Workbook, code: str, records: list):
             record.available_quantity = record.quantity
     pass
 
-def financial_year_check(workbook: Workbook, previous_date: datetime, new_date: datetime, summaries: list) -> datetime:
-    # If this record begins a new financial year
+def financial_year_check(workbook: Workbook, prev_date: datetime, new_date: datetime, summaries: list) -> datetime:
+    # Fiscal year is represented by the year of its end date
+    '''
+    if(FiscalDateTime(prev_date.year, prev_date.month, prev_date.day).fiscal_year < 
+    FiscalDateTime(new_date.year, new_date.month, new_date.day).fiscal_year):
         # Add a row giving the total capital gains for the past year
         # Add summary data
+        pass
+    '''
     pass
 
 def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
@@ -139,21 +152,14 @@ def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
     pass
 
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
-    """ 
-    """
     workbook = Workbook()
-    # Hello world:
-    # worksheet = workbook.active
-    # worksheet["A1"] = "Hello World!"
-    # workbook.save("helloworld.xlsx")
 
-    # We will have a sheet for each code (i.e. stock exchange ticker)
     investment_records_by_code = defaultdict(list)
     for record in investment_records:
         investment_records_by_code[record.code].append(record)
-   
     all_fin_year_summaries = []
 
+    # We will have a sheet for each code
     for code in investment_records_by_code:
         records = investment_records_by_code[code]
         initialise_for_new_code(workbook, code, records)
@@ -161,7 +167,6 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         code_fin_year_summaries = []
 
         for record in investment_records_by_code[code]:
-            
             financial_year_check(workbook, current_date, record.trade_date, code_fin_year_summaries)
             current_date = record.trade_date
             record.row_reference = add_new_record_row(workbook, record)
