@@ -98,7 +98,7 @@ def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
     # Return the row reference
     return ""
 
- def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> List:
+ def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> list:
     # Find which buy records we are selling, and their quantities
     # This will be FIFO, but allows other methods in future
     # Return a list of tuples containing each investment record from which we should sell, and the quantity sold
@@ -111,6 +111,12 @@ def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_qu
         # For each record from which some securities were sold:
             # Fill in the date sold field in the spreadsheet
 
+
+def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
+    # Expect a list of (string,[(int, string, string)])
+    # This represents (code, [(year, ref_to_transaction_fees, ref_to_capital_gains)])
+    # e.g. [("FAIR", [(2019, "=FAIR.ASX!B4", "=FAIR.ASX!D4"), (2020, "=FAIR.ASX!B13", "=FAIR.ASX!D13")]]),
+    #       ("FIL31", [(2019, "=FIL31.ASX!B9", "=FIL31.ASX!D9"), (2020, "=FIL31.ASX!B12", "=FIL31.ASX!D12")]])]
 
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     """ 
@@ -126,32 +132,38 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
     for record in investment_records:
         investment_records_by_code[record.code].append(record)
    
+    all_fin_year_summaries = []
+
     for code in investment_records_by_code:
         records = investment_records_by_code[code]
-
         initialise_for_new_code(workbook, records)
-        
-        # Initialise latest_date
         current_date = datetime.strptime(records[0].trade_date,"%d/%m/%Y")
+        code_fin_year_summaries = []
 
         for record in investment_records_by_code[code]:
             
-            financial_year_check(workbook, current_date, record.trade_date)
+            financial_year_check(workbook, current_date, record.trade_date, code_fin_year_summaries)
             current_date = record.trade_date
             record.row_reference = add_new_record_row(workbook, record)
             if(record.trade_type.lower() == "sell"):
                 recs_and_quants_to_sell = find_records_to_sell_fifo(workbook, record.quantity)
                 add_sale_data(workbook, record, recs_and_quants_to_sell)
- 
-    # We don't need the default empty sheet
-    del workbook["Sheet"]
+
+        all_fin_year_summaries.append((code, code_fin_year_summaries))
+    
+    add_summary_sheet(workbook, all_fin_year_summaries)
 
 def display_help():
     """Print a help message for this script to the terminal.
     """
     raise Exception("To be completed.")
 
-def save_workbook(workbook: Workbook):
+def save_workbook(workbook: Workbook, filename: str):
+    import os.path
+
+    if os.path.isfile(filename):
+        
+    
     # If filename exists, back up existing file, then save
     pass
 
@@ -169,5 +181,5 @@ if __name__ == "__main__":
 
     workbook = construct_investment_record_workbook(investment_records)
 
-    save_workbook(workbook)
+    save_workbook(workbook, "Investment_Record_Tally.xlsx")
     
