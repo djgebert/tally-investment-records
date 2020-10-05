@@ -8,6 +8,8 @@ from openpyxl import Workbook
 # import defusedxml
 from collections import defaultdict
 from datetime import datetime
+import os.path
+
 
 class InvestmentRecord():
     """Holds data for a single investment event, such as a sell or a buy.
@@ -98,25 +100,26 @@ def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
     # Return the row reference
     return ""
 
- def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> list:
+def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> list:
     # Find which buy records we are selling, and their quantities
     # This will be FIFO, but allows other methods in future
     # Return a list of tuples containing each investment record from which we should sell, and the quantity sold
     return []
 
-def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_quants_to_sell: list)
+def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
     for rec,quant in recs_and_quants_to_sell:
         # Decrease the records' quantities held
         # Calculate the capital gains and insert it
         # For each record from which some securities were sold:
             # Fill in the date sold field in the spreadsheet
-
+        pass
 
 def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
     # Expect a list of (string,[(int, string, string)])
     # This represents (code, [(year, ref_to_transaction_fees, ref_to_capital_gains)])
     # e.g. [("FAIR", [(2019, "=FAIR.ASX!B4", "=FAIR.ASX!D4"), (2020, "=FAIR.ASX!B13", "=FAIR.ASX!D13")]]),
     #       ("FIL31", [(2019, "=FIL31.ASX!B9", "=FIL31.ASX!D9"), (2020, "=FIL31.ASX!B12", "=FIL31.ASX!D12")]])]
+    pass
 
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     """ 
@@ -152,6 +155,7 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         all_fin_year_summaries.append((code, code_fin_year_summaries))
     
     add_summary_sheet(workbook, all_fin_year_summaries)
+    return workbook
 
 def display_help():
     """Print a help message for this script to the terminal.
@@ -159,14 +163,10 @@ def display_help():
     raise Exception("To be completed.")
 
 def save_workbook(workbook: Workbook, filename: str):
-    import os.path
-
     if os.path.isfile(filename):
-        
-    
-    # If filename exists, back up existing file, then save
-    pass
-
+        os.rename(filename, filename+datetime.now().strftime(".%Y-%m-%d.%H.%M.%S.bak"))    
+    workbook.save(filename)    
+ 
 if __name__ == "__main__":
     if(len(sys.argv) > 1):
             if(sys.argv[1] in ["-h", "help"]):
@@ -178,8 +178,5 @@ if __name__ == "__main__":
         path_to_search = "."
 
     investment_records = [InvestmentRecord(filename) for filename in get_contract_note_filenames(path_to_search)]
-
     workbook = construct_investment_record_workbook(investment_records)
-
     save_workbook(workbook, "Investment_Record_Tally.xlsx")
-    
