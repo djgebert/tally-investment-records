@@ -9,6 +9,7 @@ from openpyxl import Workbook
 from collections import defaultdict
 from datetime import datetime
 import os.path
+from operator import attrgetter
 
 
 class InvestmentRecord():
@@ -82,17 +83,33 @@ def get_contract_note_filenames(path: str) -> List[str]:
                 
     return contract_note_filenames
 
-def initialise_for_new_code(workbook: Workbook, records: list):
+def initialise_for_new_code(workbook: Workbook, code: str, records: list):
     # We can work on the workbook as well as the list of records in place
-    # Create the sheet
-    # Add the headings
-    # Sort the records by date
-    # Initialise the records' quantities held
+    sheet = workbook.create_sheet(code)
+    for cell, text in zip(sheet["A1:I1"][0], 
+    [
+        "Date",
+        "Code",
+        "Quantity",
+        "Average price",
+        "Transaction type",
+        "Brokerage",
+        "Capital gain",
+        "Filename",
+        "History"
+    ]):
+        cell.value = text
+
+    records.sort(key=attrgetter("trade_date", "trade_type"))
+    for record in records:
+        if(record.trade_type.lower() in "buy", "application"):
+            record.available_quantity = record.quantity
     pass
 
-def financial_year_check(workbook: Workbook, previous_date: datetime, new_date: datetime) -> datetime:
+def financial_year_check(workbook: Workbook, previous_date: datetime, new_date: datetime, summaries: list) -> datetime:
     # If this record begins a new financial year
         # Add a row giving the total capital gains for the past year
+        # Add summary data
     pass
 
 def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
@@ -139,7 +156,7 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
 
     for code in investment_records_by_code:
         records = investment_records_by_code[code]
-        initialise_for_new_code(workbook, records)
+        initialise_for_new_code(workbook, code, records)
         current_date = datetime.strptime(records[0].trade_date,"%d/%m/%Y")
         code_fin_year_summaries = []
 
@@ -148,7 +165,7 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
             financial_year_check(workbook, current_date, record.trade_date, code_fin_year_summaries)
             current_date = record.trade_date
             record.row_reference = add_new_record_row(workbook, record)
-            if(record.trade_type.lower() == "sell"):
+            if(record.trade_type.lower() in "sell", "redemption"):
                 recs_and_quants_to_sell = find_records_to_sell_fifo(workbook, record.quantity)
                 add_sale_data(workbook, record, recs_and_quants_to_sell)
 
