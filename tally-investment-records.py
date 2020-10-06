@@ -6,6 +6,7 @@ from typing import List
 import sys
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
+from openpyxl.utils import cell
 # import defusedxml
 from collections import defaultdict
 from datetime import datetime
@@ -92,6 +93,8 @@ class InvestmentRecord():
         # Data type conversions
         self.trade_date = datetime.strptime(self.trade_date,"%d/%m/%Y")
         self.quantity = float(self.quantity.replace(",", ""))
+        self.average_price_per_share = float(self.average_price_per_share.replace("$",""))
+        self.brokerage = float(self.brokerage.replace("$",""))
 
 
 
@@ -142,6 +145,7 @@ def add_new_record_row(sheet: Worksheet, row_idx: int, record: InvestmentRecord)
     sheet.cell(row_idx, _COLUMN_NAMES["Quantity"]).value = record.quantity
     sheet.cell(row_idx, _COLUMN_NAMES["Average price"]).value = record.average_price_per_share
     sheet.cell(row_idx, _COLUMN_NAMES["Transaction type"]).value = record.trade_type
+    sheet.cell(row_idx, _COLUMN_NAMES["Brokerage"]).value = record.brokerage
     sheet.cell(row_idx, _COLUMN_NAMES["Filename"]).value = record.filename
     return row_idx + 1
 
@@ -166,9 +170,16 @@ def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> l
             break
     return recs_and_quants_sold
 
-def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
+def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
+    capital_gains_formula = "=(" + str(sale_record.quantity) + "*" \
+    + cell.get_column_letter(_COLUMN_NAMES["Average price"]) \
+    + str(sale_record.row_idx) + ")"
+
     for rec,quant in recs_and_quants_to_sell:
-        # Decrease the records' quantities held
+        capital_gains_formula += "-(" + str(quant) + "*" \
+        + cell.get_column_letter(_COLUMN_NAMES["Average price"]) \
+        + str(rec.row_idx) + ")"
+
         # Calculate the capital gains and insert it
         # For each record from which some securities were sold:
             # Fill in the date sold field in the spreadsheet
@@ -203,7 +214,7 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
             row_idx = financial_year_check(sheet, row_idx, current_date, record.trade_date, code_fin_year_summaries)
             current_date = record.trade_date
             row_idx = add_new_record_row(sheet, row_idx, record)
-            if(record.trade_type.lower() in "sell", "redemption"):
+            if record.trade_type.lower() in ("sell", "mfund redemption"):
                 recs_and_quants_sold = find_records_to_sell_fifo(records, record)
                 add_sale_data(sheet, record, recs_and_quants_sold)
             current_date = record.trade_date
