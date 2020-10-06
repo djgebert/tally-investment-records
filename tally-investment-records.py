@@ -5,6 +5,7 @@ import os
 from typing import List
 import sys
 from openpyxl import Workbook
+from openpyxl.worksheet.worksheet import Worksheet
 # import defusedxml
 from collections import defaultdict
 from datetime import datetime
@@ -61,13 +62,14 @@ class InvestmentRecord():
             # Get all the data we want
             text = pdf_reader.getPage(0).extractText()
         
+        self.filename = filename
+
         # We can handle nabTrade Contract Notes
         # These will have a first line of text as follows
         if not text.startswith("WealthHub Securities Limited"):
             raise Exception("Only nabTrade Contract Notes are accepted")
 
         self.trade_type = re.search(r"\n(.+) [Cc]onfirmation", text).group(1)
-        # We want dates as datetime for later use
         # mFund transactions omit Trade date, so use a suitable substitute
         trade_date = re.search(r"Trade date:\n(.+)", text)
         if(trade_date):
@@ -87,6 +89,12 @@ class InvestmentRecord():
         self.average_price_per_share = details.group("average_price")
         self.brokerage = re.search(r"Brokerage\n(.+)", text).group(1)
 
+        # Data type conversions
+        self.trade_date = datetime.strptime(self.trade_date,"%d/%m/%Y")
+        self.quantity = float(self.quantity.replace(",", ""))
+
+
+
 def get_contract_note_filenames(path: str) -> List[str]:
     """Return a list of filenames matching the contract note format (WH_ContractNote_....pdf).
 
@@ -102,19 +110,20 @@ def get_contract_note_filenames(path: str) -> List[str]:
                 
     return contract_note_filenames
 
-def initialise_for_new_code(workbook: Workbook, code: str, records: list):
+def initialise_for_new_code(workbook: Workbook, code: str, records: list) -> Worksheet:
     # We can work on the workbook as well as the list of records in place
     sheet = workbook.create_sheet(code)
-    for name, column_ref in _COLUMN_NAMES.items(): 
-        sheet.cell(1, column_ref).value = name
+    for name, column_idx in _COLUMN_NAMES.items(): 
+        sheet.cell(1, column_idx).value = name
 
     records.sort(key=attrgetter("trade_date", "trade_type"))
     for record in records:
-        if(record.trade_type.lower() in "buy", "application"):
+        if(record.trade_type.lower() in "mfund buy", "mfund application"):
             record.available_quantity = record.quantity
-    pass
 
-def financial_year_check(workbook: Workbook, prev_date: datetime, new_date: datetime, summaries: list) -> datetime:
+    return sheet
+
+def financial_year_check(sheet: Worksheet, row_idx: int, prev_date: datetime, new_date: datetime, summaries: list) -> int:
     # Fiscal year is represented by the year of its end date
     '''
     if(FiscalDateTime(prev_date.year, prev_date.month, prev_date.day).fiscal_year < 
@@ -123,18 +132,39 @@ def financial_year_check(workbook: Workbook, prev_date: datetime, new_date: date
         # Add summary data
         pass
     '''
-    pass
+    return row_idx
 
-def add_new_record_row(workbook: Workbook, record: InvestmentRecord):
-    # Create new row and add the basic data
-    # Return the row reference
-    return ""
+def add_new_record_row(sheet: Worksheet, row_idx: int, record: InvestmentRecord) -> int:
+    # Spreadsheet row is stored in the record object for later reference
+    record.row_idx = row_idx
+    sheet.cell(row_idx, _COLUMN_NAMES["Date"]).value = record.trade_date
+    sheet.cell(row_idx, _COLUMN_NAMES["Code"]).value = record.code
+    sheet.cell(row_idx, _COLUMN_NAMES["Quantity"]).value = record.quantity
+    sheet.cell(row_idx, _COLUMN_NAMES["Average price"]).value = record.average_price_per_share
+    sheet.cell(row_idx, _COLUMN_NAMES["Transaction type"]).value = record.trade_type
+    sheet.cell(row_idx, _COLUMN_NAMES["Filename"]).value = record.filename
+    return row_idx + 1
 
-def find_records_to_sell_fifo(workbook: Workbook, quantity_to_sell: int) -> list:
-    # Find which buy records we are selling, and their quantities
-    # This will be FIFO, but allows other methods in future
-    # Return a list of tuples containing each investment record from which we should sell, and the quantity sold
-    return []
+def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> list:
+    # We assume records is already sorted
+    quantity_to_sell = sale_record.quantity
+    recs_and_quants_sold = []
+    for record in records:
+        if record is sale_record:
+            raise Exception("Insufficient buy records found for sale record " + sale_record.filename)
+        if record.trade_type.lower() in ("sell","mfund redemption"):
+            continue
+        if record.available_quantity >= quantity_to_sell:
+            recs_and_quants_sold.append((record, quantity_to_sell))
+            record.available_quantity -= quantity_to_sell
+            quantity_to_sell = 0
+            break
+        else:
+            recs_and_quants_sold.append((record, record.available_quantity))
+            quantity_to_sell -= record.available_quantity
+            record.available_quantity = 0
+            break
+    return recs_and_quants_sold
 
 def add_sale_data(workbook: Workbook, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
     for rec,quant in recs_and_quants_to_sell:
@@ -158,21 +188,25 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
     for record in investment_records:
         investment_records_by_code[record.code].append(record)
     all_fin_year_summaries = []
-
+    row_idx = 1
+    
     # We will have a sheet for each code
     for code in investment_records_by_code:
         records = investment_records_by_code[code]
-        initialise_for_new_code(workbook, code, records)
-        current_date = datetime.strptime(records[0].trade_date,"%d/%m/%Y")
+        sheet = initialise_for_new_code(workbook, code, records)
+        current_date = records[0].trade_date
         code_fin_year_summaries = []
+        # Row 1 used for heading
+        row_idx = 2
 
         for record in investment_records_by_code[code]:
-            financial_year_check(workbook, current_date, record.trade_date, code_fin_year_summaries)
+            row_idx = financial_year_check(sheet, row_idx, current_date, record.trade_date, code_fin_year_summaries)
             current_date = record.trade_date
-            record.row_reference = add_new_record_row(workbook, record)
+            row_idx = add_new_record_row(sheet, row_idx, record)
             if(record.trade_type.lower() in "sell", "redemption"):
-                recs_and_quants_to_sell = find_records_to_sell_fifo(workbook, record.quantity)
-                add_sale_data(workbook, record, recs_and_quants_to_sell)
+                recs_and_quants_sold = find_records_to_sell_fifo(records, record)
+                add_sale_data(sheet, record, recs_and_quants_sold)
+            current_date = record.trade_date
 
         all_fin_year_summaries.append((code, code_fin_year_summaries))
     
