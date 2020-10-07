@@ -7,16 +7,18 @@ import sys
 from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import cell
+from openpyxl.worksheet.dimensions import ColumnDimension
 # import defusedxml
 from collections import defaultdict
 from datetime import datetime
 import os.path
 from operator import attrgetter
+import fiscalyear
 from fiscalyear import FiscalDateTime
 
-# When working with the spreadsheet, we will use these colum names
-_COLUMN_NAMES = {}
-i = 1
+# When working with the spreadsheet, we will use these columns
+_COLUMNS = {}
+idx = 1
 for name in [
     "Date",
     "Code",
@@ -28,10 +30,12 @@ for name in [
     "Filename",
     "History"
 ]:
-    _COLUMN_NAMES[name] = i
-    i += 1
-del i
+    _COLUMNS[name] = idx
+    idx += 1
+del idx
 
+# In Australia, the financial year begins on 1 July
+fiscalyear.setup_fiscal_calendar('previous', 7, 1)
 
 class InvestmentRecord():
     """Holds data for a single investment event, such as a sell or a buy.
@@ -116,7 +120,7 @@ def get_contract_note_filenames(path: str) -> List[str]:
 def initialise_for_new_code(workbook: Workbook, code: str, records: list) -> Worksheet:
     # We can work on the workbook as well as the list of records in place
     sheet = workbook.create_sheet(code)
-    for name, column_idx in _COLUMN_NAMES.items(): 
+    for name, column_idx in _COLUMNS.items(): 
         sheet.cell(1, column_idx).value = name
 
     records.sort(key=attrgetter("trade_date", "trade_type"))
@@ -126,27 +130,43 @@ def initialise_for_new_code(workbook: Workbook, code: str, records: list) -> Wor
 
     return sheet
 
-def financial_year_check(sheet: Worksheet, row_idx: int, prev_date: datetime, new_date: datetime, summaries: list) -> int:
+def fiscal_year_check(sheet: Worksheet, fisc_year_start_idx: int, row_idx: int, prev_date: datetime, new_date: datetime, summaries: list, force_ytd_summary: bool) -> int:
     # Fiscal year is represented by the year of its end date
-    '''
-    if(FiscalDateTime(prev_date.year, prev_date.month, prev_date.day).fiscal_year < 
-    FiscalDateTime(new_date.year, new_date.month, new_date.day).fiscal_year):
-        # Add a row giving the total capital gains for the past year
-        # Add summary data
-        pass
-    '''
-    return row_idx
+    new_fiscal_year = FiscalDateTime(new_date.year, new_date.month, new_date.day).fiscal_year
+    prev_fiscal_year = FiscalDateTime(prev_date.year, prev_date.month, prev_date.day).fiscal_year
+
+    if (new_fiscal_year > prev_fiscal_year) or force_ytd_summary:
+
+        brokerage_letter = cell.get_column_letter(_COLUMNS["Brokerage"])
+        brokerage_string = "=sum(" + brokerage_letter + str(fisc_year_start_idx) + ":" \
+            + brokerage_letter + str(row_idx - 1) + ")"
+        sheet.cell(row_idx, _COLUMNS["Brokerage"]).value = brokerage_string
+
+        cap_gain_letter = cell.get_column_letter(_COLUMNS["Capital gain"])
+        cap_gain_string = "=sum(" + cap_gain_letter + str(fisc_year_start_idx) + ":" \
+            + cap_gain_letter + str(row_idx - 1) + ")"
+        sheet.cell(row_idx, _COLUMNS["Capital gain"]).value = cap_gain_string
+
+        summaries.append({
+            "fiscal_year_end": prev_fiscal_year, 
+            "brokerage_ref": brokerage_letter + str(row_idx),
+            "capital_gain_ref": cap_gain_letter + str(row_idx),
+            "is_ytd_only": force_ytd_summary
+            })
+
+        return row_idx + 1, row_idx + 1
+    return row_idx, fisc_year_start_idx
 
 def add_new_record_row(sheet: Worksheet, row_idx: int, record: InvestmentRecord) -> int:
     # Spreadsheet row is stored in the record object for later reference
     record.row_idx = row_idx
-    sheet.cell(row_idx, _COLUMN_NAMES["Date"]).value = record.trade_date
-    sheet.cell(row_idx, _COLUMN_NAMES["Code"]).value = record.code
-    sheet.cell(row_idx, _COLUMN_NAMES["Quantity"]).value = record.quantity
-    sheet.cell(row_idx, _COLUMN_NAMES["Average price"]).value = record.average_price_per_share
-    sheet.cell(row_idx, _COLUMN_NAMES["Transaction type"]).value = record.trade_type
-    sheet.cell(row_idx, _COLUMN_NAMES["Brokerage"]).value = record.brokerage
-    sheet.cell(row_idx, _COLUMN_NAMES["Filename"]).value = record.filename
+    sheet.cell(row_idx, _COLUMNS["Date"]).value = record.trade_date
+    sheet.cell(row_idx, _COLUMNS["Code"]).value = record.code
+    sheet.cell(row_idx, _COLUMNS["Quantity"]).value = record.quantity
+    sheet.cell(row_idx, _COLUMNS["Average price"]).value = record.average_price_per_share
+    sheet.cell(row_idx, _COLUMNS["Transaction type"]).value = record.trade_type
+    sheet.cell(row_idx, _COLUMNS["Brokerage"]).value = record.brokerage
+    sheet.cell(row_idx, _COLUMNS["Filename"]).value = record.filename
     return row_idx + 1
 
 def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> list:
@@ -167,30 +187,43 @@ def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> l
             recs_and_quants_sold.append((record, record.available_quantity))
             quantity_to_sell -= record.available_quantity
             record.available_quantity = 0
-            break
     return recs_and_quants_sold
 
 def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
     capital_gains_formula = "=(" + str(sale_record.quantity) + "*" \
-    + cell.get_column_letter(_COLUMN_NAMES["Average price"]) \
+    + cell.get_column_letter(_COLUMNS["Average price"]) \
     + str(sale_record.row_idx) + ")"
 
     for rec,quant in recs_and_quants_to_sell:
         capital_gains_formula += "-(" + str(quant) + "*" \
-        + cell.get_column_letter(_COLUMN_NAMES["Average price"]) \
-        + str(rec.row_idx) + ")"
+            + cell.get_column_letter(_COLUMNS["Average price"]) \
+            + str(rec.row_idx) + ")"
+        history = sheet.cell(rec.row_idx, _COLUMNS["History"]).value
+        new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
+        sheet.cell(rec.row_idx, _COLUMNS["History"]).value = (history + new_history if history else new_history)
 
-        # Calculate the capital gains and insert it
-        # For each record from which some securities were sold:
-            # Fill in the date sold field in the spreadsheet
-        pass
+    sheet.cell(sale_record.row_idx, _COLUMNS["Capital gain"]).value = capital_gains_formula
+
+def format_code_sheet(sheet: Worksheet):
+    # openpyxl has trouble setting column width automatically, so we'll do it manually
+    # We will use a multiplier on the length of cells to set a desirable width
+    _WIDTH_FACTOR = 1.23
+    for col_idx in _COLUMNS.values():
+        max_length = 0
+        for row_idx in range(1, sheet.max_row + 1):
+            length = len(str(sheet.cell(row_idx, col_idx).value))
+            max_length = length if (length > max_length) else max_length
+
+        sheet.column_dimensions[cell.get_column_letter(col_idx)].width = max_length * _WIDTH_FACTOR
 
 def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
-    # Expect a list of (string,[(int, string, string)])
-    # This represents (code, [(year, ref_to_transaction_fees, ref_to_capital_gains)])
-    # e.g. [("FAIR", [(2019, "=FAIR.ASX!B4", "=FAIR.ASX!D4"), (2020, "=FAIR.ASX!B13", "=FAIR.ASX!D13")]]),
-    #       ("FIL31", [(2019, "=FIL31.ASX!B9", "=FIL31.ASX!D9"), (2020, "=FIL31.ASX!B12", "=FIL31.ASX!D12")]])]
-    pass
+    # Use the default sheet created with the workbook
+    sheet = workbook["Sheet"]
+    sheet.title = "Summary"
+    
+    # Expect a list of (string,[dict])
+    #for code, summaries in all_fin_year_summaries:
+
 
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     workbook = Workbook()
@@ -209,17 +242,20 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         code_fin_year_summaries = []
         # Row 1 used for heading
         row_idx = 2
+        fisc_year_start_idx = 2
 
-        for record in investment_records_by_code[code]:
-            row_idx = financial_year_check(sheet, row_idx, current_date, record.trade_date, code_fin_year_summaries)
+        for record in records:
+            row_idx, fisc_year_start_idx = fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, record.trade_date, code_fin_year_summaries, False)
             current_date = record.trade_date
             row_idx = add_new_record_row(sheet, row_idx, record)
             if record.trade_type.lower() in ("sell", "mfund redemption"):
                 recs_and_quants_sold = find_records_to_sell_fifo(records, record)
                 add_sale_data(sheet, record, recs_and_quants_sold)
-            current_date = record.trade_date
 
+        fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
+
+        format_code_sheet(sheet)
     
     add_summary_sheet(workbook, all_fin_year_summaries)
     return workbook
