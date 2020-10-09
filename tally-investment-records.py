@@ -1,4 +1,5 @@
 import PyPDF2
+import textract
 import re
 from re import Match
 import os
@@ -15,6 +16,11 @@ import os.path
 from operator import attrgetter
 import fiscalyear
 from fiscalyear import FiscalDateTime
+
+# We can handle the following record types as input (all pdfs)
+WH_CONTRACTNOTE = 0
+FAIR_DISTRIBUTION_ADVICE = 1
+VDGR_REINVESTMENT_PLAN_ADVICE = 2
 
 # When working with the spreadsheet, we will use these columns
 _COLUMNS = {}
@@ -35,6 +41,7 @@ for name in [
 del idx
 
 # In Australia, the financial year begins on 1 July
+# Fiscal year is represented by the year of its end date
 fiscalyear.setup_fiscal_calendar('previous', 7, 1)
 
 class InvestmentRecord():
@@ -42,37 +49,16 @@ class InvestmentRecord():
 
     """
 
-    def __init__(self, filename: str) -> None:
+    def __init__(self, filename: str, record_type: int) -> None:
         self.filename = filename
-        self.populate(filename)
+        self.record_type = record_type
+        self.populate()
 
-    def populate(self, filename: str) -> None:
-        """Populate instance variables from a pdf file.
-
-        Args:
-            filename: The pdf file containing data for population.
-            
-        """
-        # Ensure requested file has a pdf extension
-        if not filename.endswith(".pdf"):
-            raise ValueError("Input file must have extension .pdf")
-        
-        with open(filename, "rb") as f:
-            pdf_reader = PyPDF2.PdfFileReader(f)
-
-            # Ensure it's a single page
-            if pdf_reader.numPages > 1:
-                raise Exception("Only single-page pdfs are accepted")
-
-            # Get all the data we want
-            text = pdf_reader.getPage(0).extractText()
-        
-        self.filename = filename
-
+    def populate_WH_ContractNote(self, text: str) -> None:
         # We can handle nabTrade Contract Notes
         # These will have a first line of text as follows
         if not text.startswith("WealthHub Securities Limited"):
-            raise Exception("Only nabTrade Contract Notes are accepted")
+            raise Exception("Unexpected format for WH_ContractNote file " + self.filename)
 
         self.trade_type = re.search(r"\n(.+) [Cc]onfirmation", text).group(1)
         # mFund transactions omit Trade date, so use a suitable substitute
@@ -94,15 +80,97 @@ class InvestmentRecord():
         self.average_price_per_share = details.group("average_price")
         self.brokerage = re.search(r"Brokerage\n(.+)", text).group(1)
 
-        # Data type conversions
+        # Data type conversions for this record type
         self.trade_date = datetime.strptime(self.trade_date,"%d/%m/%Y")
+
+    def populate_VDGR_Reinvestment_Plan_Advice(self, text: str) -> None:
+        self.trade_type = "DRP"
+        self.trade_date = re.search(r"Payment Date (.+)\r", text).group(1)
+        self.quantity = re.search(r"Amount applied to (.+) ETF securities", text).group(1)
+        '''self.code = re.search(r"ASX Code (.+)", text).group(1)'''
+        self.code = "VDGR"
+        self.average_price_per_share = re.search(r"securities allotted @ (.+) each", text).group(1)
+        self.brokerage = "0"
+
+        '''print("")
+        print(self.trade_type)
+        print(self.trade_date)
+        print(self.quantity)
+        print(self.code)
+        print(self.average_price_per_share)
+        print(self.brokerage)
+        print("")'''
+
+        # Data type conversions for this record type
+        self.trade_date = datetime.strptime(self.trade_date,"%d %B %Y")
+
+
+    def populate_FAIR_Distribution_Advice(self, text: str) -> None:
+        # These will have a first line of text as follows
+        if not text.startswith("Class"):
+            raise Exception("Unexpected format for FAIR_Distribution_Advice file " + self.filename)
+
+        self.trade_type = "DRP"
+        self.trade_date = re.search(r"Payment date:(.+)Record date:", text).group(1)
+        self.quantity = re.search(r"This amount has been applied to (.+) units at ", text).group(1)
+        self.code = re.search(r"ASX Code: (.+)Distribution Advice", text).group(1)
+        self.average_price_per_share = re.search(r"units at (.+) per unit", text).group(1)
+        self.brokerage = "0"
+
+        '''print("")
+        print(self.trade_type)
+        print(self.trade_date)
+        print(self.quantity)
+        print(self.code)
+        print(self.average_price_per_share)
+        print(self.brokerage)
+        print("")'''
+
+        # Data type conversions for this record type
+        self.trade_date = datetime.strptime(self.trade_date,"%d %B %Y")
+
+    def populate(self) -> None:
+        """Populate instance variables from a pdf file.
+
+        Args:
+            filename: The pdf file containing data for population.
+            
+        """
+        # Ensure requested file has a pdf extension
+        if not self.filename.endswith(".pdf"):
+            raise ValueError("Input file must have extension .pdf")
+        
+        if(self.record_type == VDGR_REINVESTMENT_PLAN_ADVICE):
+            # Use OCR as PyPDF2 can't extract text from these
+            # This depends on tesseract and popplar being installed and in PATH
+            text = textract.process(self.filename, method='tesseract', language='eng').decode("utf-8")
+
+        else:
+            with open(self.filename, "rb") as f:
+                pdf_reader = PyPDF2.PdfFileReader(f)
+
+                # Ensure it's a single page
+                if pdf_reader.numPages > 1:
+                    raise Exception("Only single-page pdfs are accepted")
+
+                # Get all the data we want
+                text = pdf_reader.getPage(0).extractText()
+
+        populators = {
+            WH_CONTRACTNOTE: self.populate_WH_ContractNote,
+            VDGR_REINVESTMENT_PLAN_ADVICE: self.populate_VDGR_Reinvestment_Plan_Advice,
+            FAIR_DISTRIBUTION_ADVICE: self.populate_FAIR_Distribution_Advice
+        }
+
+        populators.get(self.record_type)(text)
+
+        # Data type conversions for all record types
         self.quantity = float(self.quantity.replace(",", ""))
         self.average_price_per_share = float(self.average_price_per_share.replace("$",""))
         self.brokerage = float(self.brokerage.replace("$",""))
 
 
-
-def get_contract_note_filenames(path: str) -> List[str]:
+def get_investment_record_filenames(path: str) -> list:
     """Return a list of filenames matching the contract note format (WH_ContractNote_....pdf).
 
     Args:
@@ -113,7 +181,15 @@ def get_contract_note_filenames(path: str) -> List[str]:
     for dirpath, dirnames, filenames in os.walk(path):
         for filename in filenames:
             if re.fullmatch(r"WH_ContractNote_.+\.pdf", filename):
-                contract_note_filenames.append(os.path.join(dirpath, filename))
+                record_type = WH_CONTRACTNOTE
+            elif re.fullmatch(r"FAIR_Distribution_Advice_.+\.pdf", filename):
+                record_type = FAIR_DISTRIBUTION_ADVICE
+            elif re.fullmatch(r"VDGR_Reinvestment_Plan_Advice_.+\.pdf", filename):
+                record_type = VDGR_REINVESTMENT_PLAN_ADVICE
+            else:
+                continue
+
+            contract_note_filenames.append((os.path.join(dirpath, filename), record_type))
                 
     return contract_note_filenames
 
@@ -125,13 +201,12 @@ def initialise_for_new_code(workbook: Workbook, code: str, records: list) -> Wor
 
     records.sort(key=attrgetter("trade_date", "trade_type"))
     for record in records:
-        if(record.trade_type.lower() in "mfund buy", "mfund application"):
+        if(record.trade_type.lower() in "buy", "mfund application", "drp"):
             record.available_quantity = record.quantity
 
     return sheet
 
 def fiscal_year_check(sheet: Worksheet, fisc_year_start_idx: int, row_idx: int, prev_date: datetime, new_date: datetime, summaries: list, force_ytd_summary: bool) -> int:
-    # Fiscal year is represented by the year of its end date
     new_fiscal_year = FiscalDateTime(new_date.year, new_date.month, new_date.day).fiscal_year
     prev_fiscal_year = FiscalDateTime(prev_date.year, prev_date.month, prev_date.day).fiscal_year
 
@@ -245,12 +320,16 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         fisc_year_start_idx = 2
 
         for record in records:
+            # DIAGNOSTIC
+            if record.record_type == VDGR_REINVESTMENT_PLAN_ADVICE:
+                print(record.quantity)
             row_idx, fisc_year_start_idx = fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, record.trade_date, code_fin_year_summaries, False)
             current_date = record.trade_date
             row_idx = add_new_record_row(sheet, row_idx, record)
             if record.trade_type.lower() in ("sell", "mfund redemption"):
                 recs_and_quants_sold = find_records_to_sell_fifo(records, record)
                 add_sale_data(sheet, record, recs_and_quants_sold)
+            print(".", end="")
 
         fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
@@ -280,6 +359,7 @@ if __name__ == "__main__":
     else:
         path_to_search = "."
 
-    investment_records = [InvestmentRecord(filename) for filename in get_contract_note_filenames(path_to_search)]
+    investment_records = [InvestmentRecord(filename, record_type) 
+    for filename, record_type in get_investment_record_filenames(path_to_search)]
     workbook = construct_investment_record_workbook(investment_records)
     save_workbook(workbook, "Investment_Record_Tally.xlsx")
