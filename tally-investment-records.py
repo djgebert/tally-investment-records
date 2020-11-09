@@ -30,11 +30,15 @@ idx = 1
 for name, format_data in [
     ("Date", 17),
     ("Code", 9),
+    ("Transaction type", 14),
     ("Quantity", 8),
     ("Average price", 11.5),
-    ("Transaction type", 14),
     ("Brokerage", 9),
-    ("Capital gain", 10),
+    ("Cost base", 10),
+    ("Sold for", 10),
+    ("CG < 1 year", 10),
+    ("CG > 1 year", 10),
+    ("Net capital gain", 10),
     ("History", 50),
     ("Filename", 70)
 ]:
@@ -202,10 +206,10 @@ def fiscal_year_check(sheet: Worksheet, fisc_year_start_idx: int, row_idx: int, 
             + brokerage_letter + str(row_idx - 1) + ")"
         sheet.cell(row_idx, COLUMNS["Brokerage"]).value = brokerage_string
 
-        cap_gain_letter = cell.get_column_letter(COLUMNS["Capital gain"])
+        cap_gain_letter = cell.get_column_letter(COLUMNS["Net capital gain"])
         cap_gain_string = "=sum(" + cap_gain_letter + str(fisc_year_start_idx) + ":" \
             + cap_gain_letter + str(row_idx - 1) + ")"
-        sheet.cell(row_idx, COLUMNS["Capital gain"]).value = cap_gain_string
+        sheet.cell(row_idx, COLUMNS["Net capital gain"]).value = cap_gain_string
 
         summaries.append({
             "fiscal_year_end": prev_fiscal_year, 
@@ -262,7 +266,7 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
 
-    sheet.cell(sale_record.row_idx, COLUMNS["Capital gain"]).value = capital_gains_formula
+    sheet.cell(sale_record.row_idx, COLUMNS["Net capital gain"]).value = capital_gains_formula
 
 def format_code_sheet(sheet: Worksheet):
     # openpyxl has trouble setting column width automatically, so we'll do it manually
