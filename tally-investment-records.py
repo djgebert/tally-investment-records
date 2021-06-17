@@ -295,6 +295,12 @@ def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
 def construct_investment_record_workbook(investment_records: List[InvestmentRecord]) -> Workbook:
     workbook = Workbook()
 
+    # Normalise codes to just the ticker, removing any .ASX component.
+    # This assumes everything we are trading is on the ASX. If we want to include other exchanges,
+    # we will need to include the .ASX.
+    for record in investment_records:
+        record.code = re.split(r"\.", record.code)[0]
+
     investment_records_by_code = defaultdict(list)
     for record in investment_records:
         investment_records_by_code[record.code].append(record)
@@ -316,8 +322,12 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
             current_date = record.trade_date
             row_idx = add_new_record_row(sheet, row_idx, record)
             if record.trade_type.lower() in ("sell", "mfund redemption"):
-                recs_and_quants_sold = find_records_to_sell_fifo(records, record)
-                add_sale_data(sheet, record, recs_and_quants_sold)
+                try:
+                    recs_and_quants_sold = find_records_to_sell_fifo(records, record)
+                except Exception as e:
+                    sheet.cell(row_idx, COLUMNS["History"]).value = str(e)
+                else:
+                    add_sale_data(sheet, record, recs_and_quants_sold)
 
         fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
