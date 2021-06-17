@@ -131,7 +131,16 @@ class InvestmentRecord():
         
         if(self.record_type == VDGR_REINVESTMENT_PLAN_ADVICE):
             # Use OCR as PyPDF2 can't extract text from these
-            # This depends on tesseract and popplar being installed and in PATH
+            # Dependencies required to be installed separately and put in PATH:
+            #   tesseract-ocr-w64-setup-v5.0.0-alpha.20200328 
+            #   poppler
+            # Instructions:
+            #   https://medium.com/quantrium-tech/installing-and-using-tesseract-4-on-windows-10-4f7930313f82 
+            #   https://chadrick-kwag.net/install-poppler-in-windows/
+            # Binaries:
+            #   https://digi.bib.uni-mannheim.de/tesseract/
+            #   https://github.com/oschwartz10612/poppler-windows/releases/
+
             text = textract.process(self.filename, method='tesseract', language='eng').decode("utf-8")
 
         else:
