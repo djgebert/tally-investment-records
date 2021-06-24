@@ -11,7 +11,7 @@ from openpyxl.utils import cell
 from openpyxl.worksheet.dimensions import ColumnDimension
 # import defusedxml
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import os.path
 from operator import attrgetter
 import fiscalyear
@@ -35,7 +35,8 @@ for name, format_data in [
     ("Average price", 11.5),
     ("Brokerage", 9),
     ("Cost base", 10),
-    ("Sold for", 10),
+    ("Sold < 1 year for", 14),
+    ("Sold > 1 year for", 14),
     ("CG < 1 year", 10),
     ("CG > 1 year", 10),
     ("Net capital gain", 10),
@@ -240,7 +241,6 @@ def add_new_record_row(sheet: Worksheet, row_idx: int, record: InvestmentRecord)
     sheet.cell(row_idx, COLUMNS["Transaction type"]).value = record.trade_type
     sheet.cell(row_idx, COLUMNS["Brokerage"]).value = record.brokerage
     sheet.cell(row_idx, COLUMNS["Filename"]).value = record.filename
-    return row_idx + 1
 
 def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> list:
     # We assume records is already sorted
@@ -256,7 +256,7 @@ def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> l
             record.available_quantity -= quantity_to_sell
             quantity_to_sell = 0
             break
-        else:
+        elif record.available_quantity > 0:
             recs_and_quants_sold.append((record, record.available_quantity))
             quantity_to_sell -= record.available_quantity
             record.available_quantity = 0
@@ -268,9 +268,30 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
     + str(sale_record.row_idx) + ")"
 
     for rec,quant in recs_and_quants_to_sell:
+
+        if sale_record.trade_date >= rec.trade_date + timedelta(days=365):
+            sold_for_column = COLUMNS["Sold > 1 year for"]
+            cg_column = COLUMNS["CG > 1 year"]
+        else:
+            sold_for_column = COLUMNS["Sold < 1 year for"]
+            cg_column = COLUMNS["CG < 1 year"]
+
+        existing_sold_for_formula = sheet.cell(rec.row_idx, sold_for_column).value
+        new_sold_for_formula = existing_sold_for_formula + "+" if existing_sold_for_formula else "="
+        new_sold_for_formula += str(quant) + "*" \
+            + cell.get_column_letter(COLUMNS["Average price"]) \
+            + str(sale_record.row_idx)
+        sheet.cell(rec.row_idx, sold_for_column).value = new_sold_for_formula
+
+        # TODO:
+        # Add columns qty sold < 1 year and qty sold > 1 year
+        # Populate them as we go
+        # Add formula for cg_column using these new columns
+
         capital_gains_formula += "-(" + str(quant) + "*" \
             + cell.get_column_letter(COLUMNS["Average price"]) \
             + str(rec.row_idx) + ")"
+        
         history = sheet.cell(rec.row_idx, COLUMNS["History"]).value
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
@@ -279,7 +300,6 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
 
 def format_code_sheet(sheet: Worksheet):
     # openpyxl has trouble setting column width automatically, so we'll do it manually
-
     for col_name, col_width in FORMAT.items():
         sheet.column_dimensions[cell.get_column_letter(COLUMNS[col_name])].width = col_width
 
@@ -320,7 +340,16 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
         for record in records:
             row_idx, fisc_year_start_idx = fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, record.trade_date, code_fin_year_summaries, False)
             current_date = record.trade_date
-            row_idx = add_new_record_row(sheet, row_idx, record)
+            add_new_record_row(sheet, row_idx, record)
+            if record.trade_type.lower() in ("buy", "drp"):
+                cost_base_formula = "=" \
+                    + cell.get_column_letter(COLUMNS["Quantity"]) \
+                    + str(row_idx) + "*" \
+                    + cell.get_column_letter(COLUMNS["Average price"]) \
+                    + str(row_idx) + "+" \
+                    + cell.get_column_letter(COLUMNS["Brokerage"]) \
+                    + str(row_idx)                         
+                sheet.cell(row_idx, COLUMNS["Cost base"]).value = cost_base_formula
             if record.trade_type.lower() in ("sell", "mfund redemption"):
                 try:
                     recs_and_quants_sold = find_records_to_sell_fifo(records, record)
@@ -328,6 +357,7 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
                     sheet.cell(row_idx, COLUMNS["History"]).value = str(e)
                 else:
                     add_sale_data(sheet, record, recs_and_quants_sold)
+            row_idx += 1
 
         fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
