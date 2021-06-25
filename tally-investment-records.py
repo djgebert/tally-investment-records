@@ -35,9 +35,11 @@ for name, format_data in [
     ("Average price", 11.5),
     ("Brokerage", 9),
     ("Cost base", 10),
-    ("Sold < 1 year for", 14),
-    ("Sold > 1 year for", 14),
+    ("Qty sold < 1 year", 14),
+    ("Value sold < 1 year", 16),
     ("CG < 1 year", 10),
+    ("Qty sold > 1 year", 14),
+    ("Value sold > 1 year", 16),
     ("CG > 1 year", 10),
     ("Net capital gain", 10),
     ("History", 50),
@@ -263,32 +265,36 @@ def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> l
     return recs_and_quants_sold
 
 def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
-    capital_gains_formula = "=(" + str(sale_record.quantity) + "*" \
+    net_capital_gain_formula = "=(" + str(sale_record.quantity) + "*" \
     + cell.get_column_letter(COLUMNS["Average price"]) \
     + str(sale_record.row_idx) + ")"
 
     for rec,quant in recs_and_quants_to_sell:
 
         if sale_record.trade_date >= rec.trade_date + timedelta(days=365):
-            sold_for_column = COLUMNS["Sold > 1 year for"]
+            qty_sold_column = COLUMNS["Qty sold > 1 year"]
+            value_sold_for_column = COLUMNS["Value sold > 1 year"]
             cg_column = COLUMNS["CG > 1 year"]
         else:
-            sold_for_column = COLUMNS["Sold < 1 year for"]
+            qty_sold_column = COLUMNS["Qty sold < 1 year"]
+            value_sold_for_column = COLUMNS["Value sold < 1 year"]
             cg_column = COLUMNS["CG < 1 year"]
 
-        existing_sold_for_formula = sheet.cell(rec.row_idx, sold_for_column).value
+        existing_qty_sold = sheet.cell(rec.row_idx, qty_sold_column).value
+        new_qty_sold = existing_qty_sold + quant if existing_qty_sold else quant
+        sheet.cell(rec.row_idx, qty_sold_column).value = new_qty_sold
+        
+        existing_sold_for_formula = sheet.cell(rec.row_idx, value_sold_for_column).value
         new_sold_for_formula = existing_sold_for_formula + "+" if existing_sold_for_formula else "="
         new_sold_for_formula += str(quant) + "*" \
             + cell.get_column_letter(COLUMNS["Average price"]) \
             + str(sale_record.row_idx)
-        sheet.cell(rec.row_idx, sold_for_column).value = new_sold_for_formula
+        sheet.cell(rec.row_idx, value_sold_for_column).value = new_sold_for_formula
 
-        # TODO:
-        # Add columns qty sold < 1 year and qty sold > 1 year
-        # Populate them as we go
-        # Add formula for cg_column using these new columns
+        # TODO: Add formula for cg_column using these new columns
 
-        capital_gains_formula += "-(" + str(quant) + "*" \
+        # TODO: Alter the below to properly construct net capital gain formula
+        net_capital_gain_formula += "-(" + str(quant) + "*" \
             + cell.get_column_letter(COLUMNS["Average price"]) \
             + str(rec.row_idx) + ")"
         
@@ -296,7 +302,7 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
 
-    sheet.cell(sale_record.row_idx, COLUMNS["Net capital gain"]).value = capital_gains_formula
+    sheet.cell(sale_record.row_idx, COLUMNS["Net capital gain"]).value = net_capital_gain_formula
 
 def format_code_sheet(sheet: Worksheet):
     # openpyxl has trouble setting column width automatically, so we'll do it manually
