@@ -291,7 +291,11 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
             + str(sale_record.row_idx)
         sheet.cell(rec.row_idx, value_sold_for_column).value = new_sold_for_formula
 
-        # TODO: Add formula for cg_column using these new columns
+        cg_formula = "=" + cell.get_column_letter(value_sold_for_column) + str(rec.row_idx) \
+            + "-((" + cell.get_column_letter(qty_sold_column) + str(rec.row_idx) \
+            + "/" + cell.get_column_letter(COLUMNS["Quantity"]) + str(rec.row_idx) \
+            + ")*" + cell.get_column_letter(COLUMNS["Cost base"]) + str(rec.row_idx) + ")"
+        sheet.cell(rec.row_idx, cg_column).value = cg_formula
 
         # TODO: Alter the below to properly construct net capital gain formula
         net_capital_gain_formula += "-(" + str(quant) + "*" \
