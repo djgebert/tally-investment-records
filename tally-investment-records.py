@@ -269,16 +269,25 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
     + cell.get_column_letter(COLUMNS["Average price"]) \
     + str(sale_record.row_idx) + ")"
 
+    cg_gt_1year_cell_list = ""
+    cg_lt_1year_cell_list = ""
+
     for rec,quant in recs_and_quants_to_sell:
 
         if sale_record.trade_date >= rec.trade_date + timedelta(days=365):
             qty_sold_column = COLUMNS["Qty sold > 1 year"]
             value_sold_for_column = COLUMNS["Value sold > 1 year"]
             cg_column = COLUMNS["CG > 1 year"]
+            cg_gt_1year_cell_list += "," if cg_gt_1year_cell_list else ""
+            cg_gt_1year_cell_list += cell.get_column_letter(COLUMNS["CG > 1 year"]) \
+                + str(rec.row_idx)
         else:
             qty_sold_column = COLUMNS["Qty sold < 1 year"]
             value_sold_for_column = COLUMNS["Value sold < 1 year"]
             cg_column = COLUMNS["CG < 1 year"]
+            cg_lt_1year_cell_list += "," if cg_lt_1year_cell_list else ""
+            cg_lt_1year_cell_list += cell.get_column_letter(COLUMNS["CG < 1 year"]) \
+                + str(rec.row_idx)
 
         existing_qty_sold = sheet.cell(rec.row_idx, qty_sold_column).value
         new_qty_sold = existing_qty_sold + quant if existing_qty_sold else quant
@@ -297,15 +306,19 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
             + ")*" + cell.get_column_letter(COLUMNS["Cost base"]) + str(rec.row_idx) + ")"
         sheet.cell(rec.row_idx, cg_column).value = cg_formula
 
-        # TODO: Alter the below to properly construct net capital gain formula
-        net_capital_gain_formula += "-(" + str(quant) + "*" \
-            + cell.get_column_letter(COLUMNS["Average price"]) \
-            + str(rec.row_idx) + ")"
-        
         history = sheet.cell(rec.row_idx, COLUMNS["History"]).value
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
 
+    # In Australia, capital gains on assets owned for longer than 1 year receive a 50% discount
+    net_capital_gain_formula = "="
+    if cg_gt_1year_cell_list:
+        net_capital_gain_formula += "(SUM(" + cg_gt_1year_cell_list + ")/2)"
+    if cg_lt_1year_cell_list:
+        net_capital_gain_formula += "+" if net_capital_gain_formula != "=" else ""
+        net_capital_gain_formula += "SUM(" + cg_lt_1year_cell_list + ")"
+    assert net_capital_gain_formula != "="
+    net_capital_gain_formula += "-" + cell.get_column_letter(COLUMNS["Brokerage"]) + str(sale_record.row_idx)
     sheet.cell(sale_record.row_idx, COLUMNS["Net capital gain"]).value = net_capital_gain_formula
 
 def format_code_sheet(sheet: Worksheet):
