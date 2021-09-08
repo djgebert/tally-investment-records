@@ -13,7 +13,7 @@ from openpyxl.worksheet.dimensions import ColumnDimension
 from collections import defaultdict
 from datetime import datetime, timedelta
 import os.path
-from operator import attrgetter
+from operator import attrgetter, truediv
 import fiscalyear
 from fiscalyear import FiscalDateTime
 from progress.bar import ChargingBar
@@ -32,16 +32,16 @@ for name, format_data in [
     ("Code", 9),
     ("Transaction type", 14),
     ("Quantity", 8),
+    ("Subquantity", 10),
     ("Average price", 11.5),
     ("Brokerage", 9),
     ("Cost base", 10),
-    ("Qty sold < 1 year", 14),
-    ("Value sold < 1 year", 16),
-    ("CG < 1 year", 10),
-    ("Qty sold > 1 year", 14),
-    ("Value sold > 1 year", 16),
-    ("CG > 1 year", 10),
-    ("Net capital gain", 10),
+    # ("Qty sold < 1 year", 14),
+    ("Capital gain <= 1 year", 20),
+    # ("CG < 1 year", 10),
+    # ("Qty sold > 1 year", 14),
+    ("Capital gain > 1 year", 19),
+    ("Net annual capital gain", 10),
     ("History", 50),
     ("Filename", 70)
 ]:
@@ -143,6 +143,7 @@ class InvestmentRecord():
             # Binaries:
             #   https://digi.bib.uni-mannheim.de/tesseract/
             #   https://github.com/oschwartz10612/poppler-windows/releases/
+            # TODO: archive copies of the above instructions and binaries in case the links diasppear
 
             text = textract.process(self.filename, method='tesseract', language='eng').decode("utf-8")
 
@@ -269,57 +270,40 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
     + cell.get_column_letter(COLUMNS["Average price"]) \
     + str(sale_record.row_idx) + ")"
 
-    cg_gt_1year_cell_list = ""
-    cg_lt_1year_cell_list = ""
+    using_subquantities = True if recs_and_quants_to_sell.count > 1 else False
+    current_row_idx = sale_record.row_idx if using_subquantities else sale_record.row_idx + 1
+    quantity_column_to_use = COLUMNS["Subquantity"] if using_subquantities else COLUMNS["Quantity"]
 
     for rec,quant in recs_and_quants_to_sell:
 
-        if sale_record.trade_date >= rec.trade_date + timedelta(days=365):
-            qty_sold_column = COLUMNS["Qty sold > 1 year"]
-            value_sold_for_column = COLUMNS["Value sold > 1 year"]
-            cg_column = COLUMNS["CG > 1 year"]
-            cg_gt_1year_cell_list += "," if cg_gt_1year_cell_list else ""
-            cg_gt_1year_cell_list += cell.get_column_letter(COLUMNS["CG > 1 year"]) \
-                + str(rec.row_idx)
+        if using_subquantities:
+            sheet.cell(current_row_idx, quantity_column_to_use).value = quant
+        # Else we assume the Quantity of the investment record was written earlier
+
+        cost_base_formula = "=" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
+            + "*" + cell.get_column_letter(COLUMNS["Average Price"]) + str(rec.row_idx) \
+            + "+(" + cell.get_column_letter(COLUMNS["Brokerage"]) + str(rec.row_idx) \
+            + "*" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
+            + "/" + cell.get_column_letter(COLUMNS["Quantity"]) + str(rec.row_idx) + ")" \
+            + "+(" + cell.get_column_letter(COLUMNS["Brokerage"]) + str(sale_record.row_idx) \
+            + "*" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
+            + "/" + cell.get_column_letter(COLUMNS["Quantity"]) + str(sale_record.row_idx) + ")"
+        sheet.cell(current_row_idx, COLUMNS["Cost base"]).value = cost_base_formula
+
+        capital_gain_formula = "=(" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
+            + "*" + cell.get_column_letter(COLUMNS["Average Price"]) + str(sale_record.row_idx) \
+            + ")-" + cell.get_column_letter(COLUMNS["Cost base"]) + str(current_row_idx) 
+        if sale_record.trade_date > rec.trade_date + timedelta(days=365):
+            capital_gain_column_to_use = COLUMNS["Value sold > 1 year"]
         else:
-            qty_sold_column = COLUMNS["Qty sold < 1 year"]
-            value_sold_for_column = COLUMNS["Value sold < 1 year"]
-            cg_column = COLUMNS["CG < 1 year"]
-            cg_lt_1year_cell_list += "," if cg_lt_1year_cell_list else ""
-            cg_lt_1year_cell_list += cell.get_column_letter(COLUMNS["CG < 1 year"]) \
-                + str(rec.row_idx)
-
-        existing_qty_sold = sheet.cell(rec.row_idx, qty_sold_column).value
-        new_qty_sold = existing_qty_sold + quant if existing_qty_sold else quant
-        sheet.cell(rec.row_idx, qty_sold_column).value = new_qty_sold
-        
-        existing_sold_for_formula = sheet.cell(rec.row_idx, value_sold_for_column).value
-        new_sold_for_formula = existing_sold_for_formula + "+" if existing_sold_for_formula else "="
-        new_sold_for_formula += str(quant) + "*" \
-            + cell.get_column_letter(COLUMNS["Average price"]) \
-            + str(sale_record.row_idx)
-        sheet.cell(rec.row_idx, value_sold_for_column).value = new_sold_for_formula
-
-        cg_formula = "=" + cell.get_column_letter(value_sold_for_column) + str(rec.row_idx) \
-            + "-((" + cell.get_column_letter(qty_sold_column) + str(rec.row_idx) \
-            + "/" + cell.get_column_letter(COLUMNS["Quantity"]) + str(rec.row_idx) \
-            + ")*" + cell.get_column_letter(COLUMNS["Cost base"]) + str(rec.row_idx) + ")"
-        sheet.cell(rec.row_idx, cg_column).value = cg_formula
+            capital_gain_column_to_use = COLUMNS["Value sold < 1 year"]
+        sheet.cell(current_row_idx, capital_gain_column_to_use).value = capital_gain_formula
 
         history = sheet.cell(rec.row_idx, COLUMNS["History"]).value
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
 
-    # In Australia, capital gains on assets owned for longer than 1 year receive a 50% discount
-    net_capital_gain_formula = "="
-    if cg_gt_1year_cell_list:
-        net_capital_gain_formula += "(SUM(" + cg_gt_1year_cell_list + ")/2)"
-    if cg_lt_1year_cell_list:
-        net_capital_gain_formula += "+" if net_capital_gain_formula != "=" else ""
-        net_capital_gain_formula += "SUM(" + cg_lt_1year_cell_list + ")"
-    assert net_capital_gain_formula != "="
-    net_capital_gain_formula += "-" + cell.get_column_letter(COLUMNS["Brokerage"]) + str(sale_record.row_idx)
-    sheet.cell(sale_record.row_idx, COLUMNS["Net capital gain"]).value = net_capital_gain_formula
+    return recs_and_quants_to_sell.count
 
 def format_code_sheet(sheet: Worksheet):
     # openpyxl has trouble setting column width automatically, so we'll do it manually
@@ -378,9 +362,9 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
                     recs_and_quants_sold = find_records_to_sell_fifo(records, record)
                 except Exception as e:
                     sheet.cell(row_idx, COLUMNS["History"]).value = str(e)
+                    row_idx += 1
                 else:
-                    add_sale_data(sheet, record, recs_and_quants_sold)
-            row_idx += 1
+                    row_idx += add_sale_data(sheet, record, recs_and_quants_sold)
 
         fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
