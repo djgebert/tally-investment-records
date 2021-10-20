@@ -1,4 +1,6 @@
 import PyPDF2
+import openpyxl
+from openpyxl.styles.numbers import BUILTIN_FORMATS
 import textract
 import re
 from re import Match
@@ -9,7 +11,6 @@ from openpyxl import Workbook
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import cell
 from openpyxl.worksheet.dimensions import ColumnDimension
-# import defusedxml
 from collections import defaultdict
 from datetime import datetime, timedelta
 import os.path
@@ -30,18 +31,15 @@ idx = 1
 for name, format_data in [
     ("Date", 17),
     ("Code", 9),
-    ("Transaction type", 14),
-    ("Quantity", 8),
-    ("Subquantity", 10),
-    ("Average price", 11.5),
-    ("Brokerage", 9),
-    ("Cost base", 10),
-    # ("Qty sold < 1 year", 14),
-    ("Capital gain <= 1 year", 20),
-    # ("CG < 1 year", 10),
-    # ("Qty sold > 1 year", 14),
-    ("Capital gain > 1 year", 19),
-    ("Net annual capital gain", 10),
+    ("Transaction type", 15),
+    ("Quantity", 9),
+    ("Subquantity", 11),
+    ("Average price", 12),
+    ("Brokerage", 10),
+    ("Cost base", 11),
+    ("Capital gain <= 1 year", 21),
+    ("Capital gain > 1 year", 20),
+    ("Net capital gain", 15),
     ("History", 50),
     ("Filename", 70)
 ]:
@@ -143,7 +141,7 @@ class InvestmentRecord():
             # Binaries:
             #   https://digi.bib.uni-mannheim.de/tesseract/
             #   https://github.com/oschwartz10612/poppler-windows/releases/
-            # TODO: archive copies of the above instructions and binaries in case the links diasppear
+            # Copies of these binaries and instructions are also kept in the current repository's lib folder
 
             text = textract.process(self.filename, method='tesseract', language='eng').decode("utf-8")
 
@@ -214,22 +212,28 @@ def fiscal_year_check(sheet: Worksheet, fisc_year_start_idx: int, row_idx: int, 
 
     if (new_fiscal_year > prev_fiscal_year) or force_ytd_summary:
 
-        brokerage_letter = cell.get_column_letter(COLUMNS["Brokerage"])
-        brokerage_string = "=sum(" + brokerage_letter + str(fisc_year_start_idx) + ":" \
-            + brokerage_letter + str(row_idx - 1) + ")"
-        sheet.cell(row_idx, COLUMNS["Brokerage"]).value = brokerage_string
+        sheet.cell(row_idx, COLUMNS["Date"]).value = "END OF FINANCIAL YEAR " + \
+            str(prev_fiscal_year-1) + "-" + str(prev_fiscal_year)
 
-        cap_gain_letter = cell.get_column_letter(COLUMNS["Net capital gain"])
-        cap_gain_string = "=sum(" + cap_gain_letter + str(fisc_year_start_idx) + ":" \
-            + cap_gain_letter + str(row_idx - 1) + ")"
-        sheet.cell(row_idx, COLUMNS["Net capital gain"]).value = cap_gain_string
+        for column_name in ["Capital gain <= 1 year", "Capital gain > 1 year"]:
+            col_letter = cell.get_column_letter(COLUMNS[column_name])
+            formula = "=sum(" + col_letter + str(fisc_year_start_idx) + ":" \
+                + col_letter + str(row_idx - 1) + ")"
+            sheet.cell(row_idx, COLUMNS[column_name]).value = formula
 
-        summaries.append({
-            "fiscal_year_end": prev_fiscal_year, 
-            "brokerage_ref": brokerage_letter + str(row_idx),
-            "capital_gain_ref": cap_gain_letter + str(row_idx),
-            "is_ytd_only": force_ytd_summary
-            })
+        net_capital_gain_formula = "=" + cell.get_column_letter(COLUMNS["Capital gain <= 1 year"]) + str(row_idx) \
+            + "+(" + cell.get_column_letter(COLUMNS["Capital gain > 1 year"]) + str(row_idx) +"/2)"
+        sheet.cell(row_idx, COLUMNS["Net capital gain"]).value = net_capital_gain_formula
+
+        for column_name in COLUMNS:
+            sheet.cell(row_idx, COLUMNS[column_name]).style = "Accent1"
+
+        # summaries.append({
+        #     "fiscal_year_end": prev_fiscal_year, 
+        #     "brokerage_ref": col_letter + str(row_idx),
+        #     "capital_gain_ref": cap_gain_letter + str(row_idx),
+        #     "is_ytd_only": force_ytd_summary
+        #     })
 
         return row_idx + 1, row_idx + 1
     return row_idx, fisc_year_start_idx
@@ -266,12 +270,16 @@ def find_records_to_sell_fifo(records: list, sale_record: InvestmentRecord) -> l
     return recs_and_quants_sold
 
 def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quants_to_sell: list):
+    """Returns the number of rows added for subquantities.
+    
+    """
     net_capital_gain_formula = "=(" + str(sale_record.quantity) + "*" \
     + cell.get_column_letter(COLUMNS["Average price"]) \
     + str(sale_record.row_idx) + ")"
 
-    using_subquantities = True if recs_and_quants_to_sell.count > 1 else False
-    current_row_idx = sale_record.row_idx if using_subquantities else sale_record.row_idx + 1
+    num_recs_and_quants = len(recs_and_quants_to_sell)
+    using_subquantities = True if num_recs_and_quants > 1 else False
+    current_row_idx = sale_record.row_idx + 1 if using_subquantities else sale_record.row_idx
     quantity_column_to_use = COLUMNS["Subquantity"] if using_subquantities else COLUMNS["Quantity"]
 
     for rec,quant in recs_and_quants_to_sell:
@@ -281,7 +289,7 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
         # Else we assume the Quantity of the investment record was written earlier
 
         cost_base_formula = "=" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
-            + "*" + cell.get_column_letter(COLUMNS["Average Price"]) + str(rec.row_idx) \
+            + "*" + cell.get_column_letter(COLUMNS["Average price"]) + str(rec.row_idx) \
             + "+(" + cell.get_column_letter(COLUMNS["Brokerage"]) + str(rec.row_idx) \
             + "*" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
             + "/" + cell.get_column_letter(COLUMNS["Quantity"]) + str(rec.row_idx) + ")" \
@@ -291,24 +299,34 @@ def add_sale_data(sheet: Worksheet, sale_record: InvestmentRecord, recs_and_quan
         sheet.cell(current_row_idx, COLUMNS["Cost base"]).value = cost_base_formula
 
         capital_gain_formula = "=(" + cell.get_column_letter(quantity_column_to_use) + str(current_row_idx) \
-            + "*" + cell.get_column_letter(COLUMNS["Average Price"]) + str(sale_record.row_idx) \
+            + "*" + cell.get_column_letter(COLUMNS["Average price"]) + str(sale_record.row_idx) \
             + ")-" + cell.get_column_letter(COLUMNS["Cost base"]) + str(current_row_idx) 
         if sale_record.trade_date > rec.trade_date + timedelta(days=365):
-            capital_gain_column_to_use = COLUMNS["Value sold > 1 year"]
+            capital_gain_column_to_use = COLUMNS["Capital gain > 1 year"]
         else:
-            capital_gain_column_to_use = COLUMNS["Value sold < 1 year"]
+            capital_gain_column_to_use = COLUMNS["Capital gain <= 1 year"]
         sheet.cell(current_row_idx, capital_gain_column_to_use).value = capital_gain_formula
 
         history = sheet.cell(rec.row_idx, COLUMNS["History"]).value
         new_history = "Sold " + str(quant) + " on " + sale_record.trade_date.strftime("%d/%m/%Y. ")
         sheet.cell(rec.row_idx, COLUMNS["History"]).value = (history + new_history if history else new_history)
 
-    return recs_and_quants_to_sell.count
+        current_row_idx += 1
+
+    return num_recs_and_quants if using_subquantities else 0
 
 def format_code_sheet(sheet: Worksheet):
+    for column_name in COLUMNS:
+        sheet.cell(1, COLUMNS[column_name]).style = "Accent1"
+
+    for column_name in ["Average price", "Brokerage", "Cost base", "Capital gain <= 1 year", "Capital gain > 1 year"]: 
+        for this_cell in sheet[cell.get_column_letter(COLUMNS[column_name])]:
+            pass # TODO: Set currency formatting here
+    
     # openpyxl has trouble setting column width automatically, so we'll do it manually
     for col_name, col_width in FORMAT.items():
         sheet.column_dimensions[cell.get_column_letter(COLUMNS[col_name])].width = col_width
+    
 
 def add_summary_sheet(workbook: Workbook, all_fin_year_summaries: list):
     # Use the default sheet created with the workbook
@@ -362,9 +380,10 @@ def construct_investment_record_workbook(investment_records: List[InvestmentReco
                     recs_and_quants_sold = find_records_to_sell_fifo(records, record)
                 except Exception as e:
                     sheet.cell(row_idx, COLUMNS["History"]).value = str(e)
-                    row_idx += 1
                 else:
+                    pass
                     row_idx += add_sale_data(sheet, record, recs_and_quants_sold)
+            row_idx += 1
 
         fiscal_year_check(sheet, fisc_year_start_idx, row_idx, current_date, current_date, code_fin_year_summaries, True)
         all_fin_year_summaries.append((code, code_fin_year_summaries))
